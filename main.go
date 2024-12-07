@@ -2,152 +2,155 @@ package main
 
 import (
 	"net/http"
+	"strings"
+	"time"
+
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 )
 
-type product struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	Price       float64 `json:"price"`
-	VendorID    string  `json:"vendor_id"`
-}
+var secretKey = "secret" // Chave para assinar o token
 
-type vendor struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-}
-
-type user struct {
-	ID       string `json:"id"`
+// Estruturas para dados
+type Credentials struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-var products = []product{
-	{ID: "1", Name: "Laptop", Description: "Laptop de 15 polegadas", Price: 1200.00, VendorID: "1"},
-	{ID: "2", Name: "Smartphone", Description: "Smartphone 6GB RAM", Price: 600.00, VendorID: "2"},
+type Product struct {
+	ID    int    `json:"id"`
+	Name  string `json:"name"`
+	Price string `json:"price"`
 }
 
-var vendors = []vendor{
-	{ID: "1", Name: "John's Electronics"},
-	{ID: "2", Name: "TechWorld"},
+type Vendor struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
 }
 
-var users = []user{
-	{ID: "1", Username: "matheus", Password: "senha123"},
+// Dados em memória
+var users = []Credentials{
+	{Username: "admin", Password: "admin"},
+}
+
+var products = []Product{
+	{ID: 1, Name: "Produto 1", Price: "10.00"},
+	{ID: 2, Name: "Produto 2", Price: "20.00"},
+}
+
+var vendors = []Vendor{
+	{ID: 1, Name: "Vendedor 1"},
+	{ID: 2, Name: "Vendedor 2"},
+}
+
+// Middleware para autenticação JWT
+func authenticateJWT(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Missing Authorization header"})
+		c.Abort()
+		return
+	}
+
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return []byte(secretKey), nil
+	})
+
+	if err != nil || !token.Valid {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token"})
+		c.Abort()
+		return
+	}
+
+	c.Next()
+}
+
+// Funções para endpoints
+func login(c *gin.Context) {
+	var creds Credentials
+	if err := c.BindJSON(&creds); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid request"})
+		return
+	}
+
+	// Verifica as credenciais
+	for _, u := range users {
+		if u.Username == creds.Username && u.Password == creds.Password {
+			// Gera o token JWT
+			token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+				"username": creds.Username,
+				"exp":      time.Now().Add(time.Hour * 1).Unix(), // Expira em 1 hora
+			})
+
+			tokenString, err := token.SignedString([]byte(secretKey))
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"message": "Could not generate token"})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{"token": tokenString})
+			return
+		}
+	}
+
+	c.JSON(http.StatusUnauthorized, gin.H{"message": "Invalid username or password"})
+}
+
+// Endpoints de produtos
+func getProducts(c *gin.Context) {
+	c.JSON(http.StatusOK, products)
+}
+
+func addProduct(c *gin.Context) {
+	var product Product
+	if err := c.BindJSON(&product); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	product.ID = len(products) + 1
+	products = append(products, product)
+	c.JSON(http.StatusCreated, product)
+}
+
+// Endpoints de vendedores
+func getVendors(c *gin.Context) {
+	c.JSON(http.StatusOK, vendors)
+}
+
+func addVendor(c *gin.Context) {
+	var vendor Vendor
+	if err := c.BindJSON(&vendor); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	vendor.ID = len(vendors) + 1
+	vendors = append(vendors, vendor)
+	c.JSON(http.StatusCreated, vendor)
+}
+
+// Endpoint protegido
+func protectedEndpoint(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"message": "You are authorized!"})
 }
 
 func main() {
-	router := gin.Default()
+	r := gin.Default()
 
-	// Endpoints de Produtos
-	router.GET("/products", getProducts)
-	router.GET("/products/:id", getProductByID)
-	router.POST("/products", postProduct)
-	router.PUT("/products/:id", updateProduct)
-	router.DELETE("/products/:id", deleteProduct)
+	// Endpoints públicos
+	r.POST("/login", login)
+	r.GET("/products", getProducts)
+	r.GET("/vendors", getVendors)
 
-	// Endpoints de Vendedores
-	router.GET("/vendors", getVendors)
-	router.GET("/vendors/:id", getVendorByID)
-	router.POST("/vendors", postVendor)
+	// Endpoints para adicionar (protegidos com JWT)
+	r.POST("/products", authenticateJWT, addProduct)
+	r.POST("/vendors", authenticateJWT, addVendor)
 
-	// Endpoints de Usuários
-	router.GET("/users", getUsers)
-	router.POST("/users", postUser)
+	// Endpoint protegido
+	r.GET("/protected", authenticateJWT, protectedEndpoint)
 
-	router.Run("localhost:8080")
-}
-
-func getProducts(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, products)
-}
-
-func getProductByID(c *gin.Context) {
-	id := c.Param("id")
-	for _, p := range products {
-		if p.ID == id {
-			c.IndentedJSON(http.StatusOK, p)
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "product not found"})
-}
-
-func postProduct(c *gin.Context) {
-	var newProduct product
-	if err := c.BindJSON(&newProduct); err != nil {
-		return
-	}
-	products = append(products, newProduct)
-	c.IndentedJSON(http.StatusCreated, newProduct)
-}
-
-func updateProduct(c *gin.Context) {
-	id := c.Param("id")
-	var updatedProduct product
-	if err := c.BindJSON(&updatedProduct); err != nil {
-		return
-	}
-
-	for i, p := range products {
-		if p.ID == id {
-			products[i] = updatedProduct
-			c.IndentedJSON(http.StatusOK, updatedProduct)
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "product not found"})
-}
-
-func deleteProduct(c *gin.Context) {
-	id := c.Param("id")
-	for i, p := range products {
-		if p.ID == id {
-			products = append(products[:i], products[i+1:]...)
-			c.IndentedJSON(http.StatusOK, gin.H{"message": "product deleted"})
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "product not found"})
-}
-
-func getVendors(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, vendors)
-}
-
-func getVendorByID(c *gin.Context) {
-	id := c.Param("id")
-	for _, v := range vendors {
-		if v.ID == id {
-			c.IndentedJSON(http.StatusOK, v)
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "vendor not found"})
-}
-
-func postVendor(c *gin.Context) {
-	var newVendor vendor
-	if err := c.BindJSON(&newVendor); err != nil {
-		return
-	}
-	newVendor.ID = string(len(vendors) + 1)
-	vendors = append(vendors, newVendor)
-	c.IndentedJSON(http.StatusCreated, newVendor)
-}
-
-func getUsers(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, users)
-}
-
-func postUser(c *gin.Context) {
-	var newUser user
-	if err := c.BindJSON(&newUser); err != nil {
-		return
-	}
-	newUser.ID = string(len(users) + 1)
-	users = append(users, newUser)
-	c.IndentedJSON(http.StatusCreated, newUser)
+	// Inicia o servidor
+	r.Run(":8080")
 }
