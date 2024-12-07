@@ -5,7 +5,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// Estruturas para Produto e Vendedor
 type product struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -19,7 +18,12 @@ type vendor struct {
 	Name string `json:"name"`
 }
 
-// Banco de dados em memória
+type user struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
 var products = []product{
 	{ID: "1", Name: "Laptop", Description: "Laptop de 15 polegadas", Price: 1200.00, VendorID: "1"},
 	{ID: "2", Name: "Smartphone", Description: "Smartphone 6GB RAM", Price: 600.00, VendorID: "2"},
@@ -30,23 +34,32 @@ var vendors = []vendor{
 	{ID: "2", Name: "TechWorld"},
 }
 
+var users = []user{
+	{ID: "1", Username: "matheus", Password: "senha123"},
+}
+
 func main() {
 	router := gin.Default()
 
-	// Roteamento
+	// Endpoints de Produtos
 	router.GET("/products", getProducts)
 	router.GET("/products/:id", getProductByID)
 	router.POST("/products", postProduct)
 	router.PUT("/products/:id", updateProduct)
 	router.DELETE("/products/:id", deleteProduct)
 
+	// Endpoints de Vendedores
 	router.GET("/vendors", getVendors)
 	router.GET("/vendors/:id", getVendorByID)
+	router.POST("/vendors", postVendor)
+
+	// Endpoints de Usuários
+	router.GET("/users", getUsers)
+	router.POST("/users", postUser)
 
 	router.Run("localhost:8080")
 }
 
-// Funções de Produtos
 func getProducts(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, products)
 }
@@ -100,7 +113,6 @@ func deleteProduct(c *gin.Context) {
 	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "product not found"})
 }
 
-// Funções de Vendedores
 func getVendors(c *gin.Context) {
 	c.IndentedJSON(http.StatusOK, vendors)
 }
@@ -114,4 +126,28 @@ func getVendorByID(c *gin.Context) {
 		}
 	}
 	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "vendor not found"})
+}
+
+func postVendor(c *gin.Context) {
+	var newVendor vendor
+	if err := c.BindJSON(&newVendor); err != nil {
+		return
+	}
+	newVendor.ID = string(len(vendors) + 1)
+	vendors = append(vendors, newVendor)
+	c.IndentedJSON(http.StatusCreated, newVendor)
+}
+
+func getUsers(c *gin.Context) {
+	c.IndentedJSON(http.StatusOK, users)
+}
+
+func postUser(c *gin.Context) {
+	var newUser user
+	if err := c.BindJSON(&newUser); err != nil {
+		return
+	}
+	newUser.ID = string(len(users) + 1)
+	users = append(users, newUser)
+	c.IndentedJSON(http.StatusCreated, newUser)
 }
